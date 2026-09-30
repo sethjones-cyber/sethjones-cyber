@@ -27,7 +27,7 @@ Cybersecurity graduate and IT support professional focused on security operation
 | Project                                 | Skills Demonstrated                                            | Status                    |
 | --------------------------------------- | -------------------------------------------------------------- | ------------------------- |
 | Home-Lab Penetration Testing Assessment | Scoping, Nmap, enumeration, controlled exploitation, reporting | Documentation in progress |
-| Wazuh Detection and Incident Response   | SIEM monitoring, alert triage, Windows event analysis          | Planned                   |
+| [Wazuh Authentication Detection](projects/wazuh-authentication/) | SIEM monitoring, alert triage, Windows Events 4625 and 4624, service recovery | Two verified labs |
 | Network Segmentation and Zero Trust     | pfSense, VLANs, firewall rules, least privilege                | Planned                   |
 | Home-Lab Security Risk Assessment       | Asset inventory, risk analysis, NIST CSF 2.0                   | Planned                   |
 
