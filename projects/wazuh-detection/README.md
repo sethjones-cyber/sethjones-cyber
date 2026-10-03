@@ -1,16 +1,18 @@
-# Wazuh 4.14 Detection and Investigation — Labs 5–7
+# Wazuh 4.14 Detection and Investigation — Labs 5–9
 
-Author: Seth Jones | Performed: October 1, 2026 | Controlled home lab
+Author: Seth Jones | Performed: October 1–3, 2026 | Controlled home lab
 
 ## Scope and results
 
-I tested privileged group membership changes, scheduled task auditing, and PowerShell script block logging on a Windows 11 workstation monitored by Wazuh 4.14 in Proxmox. These were deliberate, benign actions. The review focused on who acted, what changed, when it happened, the affected system, and whether the activity matched an approved purpose. Logs alone do not establish a person's intent or CAB approval.
+I tested privileged group membership changes, scheduled task auditing, and PowerShell script block logging on a Windows 11 workstation monitored by Wazuh 4.14 in Proxmox. I also reviewed QEMU vulnerability findings and tested domain account monitoring on a Windows Server 2025 domain controller. These were deliberate, benign actions. The review focused on who acted, what changed, when it happened, the affected system, and whether the activity matched an approved purpose. Logs alone do not establish a person's intent or CAB approval.
 
 | Lab | Verified result | Limitations |
 | --- | --- | --- |
 | 5 — Administrator membership | Wazuh events 4732 and 4733; disabled test account added and removed | No login or use of elevated privileges tested |
 | 6 — Scheduled task | Creation 4698 in Wazuh after enabling auditing; deletion command succeeded; local 4699 observed | Deletion not found in Wazuh; no execution evidence |
 | 7 — PowerShell | Plain marker captured locally; revised marker with environment query captured in Wazuh | Initial marker absent from Wazuh searches; cause not established |
+| 8 — Vulnerability triage | Package and VM device configuration checked | Applicability and vendor patch status not confirmed; no exploit or patch performed |
+| 9 — Domain account monitoring | Wazuh events 4720 and 4726 for the same test account; cleanup detected | Original DC timestamps affected by a three-hour clock error, corrected afterward |
 
 Public documentation omits private network addresses, workstation names, administrator usernames, and full SIDs. Screenshot identifiers are described in text rather than publishing original identifying screenshots.
 
@@ -104,4 +106,76 @@ Follow-up: verify retention was saved, review actual available storage and pruni
 
 These labs demonstrated membership-change triage, the effect of audit policy on task visibility, and the distinction between local PowerShell logging and SIEM alert visibility. Test accounts and tasks were removed. Two visibility gaps remain documented rather than reported as resolved: task deletion in Wazuh and the initial plain PowerShell marker.
 
-Planned next labs: Lab 8 vulnerability triage, Lab 9 domain account monitoring, and Lab 10 a combined investigation. These are not completed results.
+Labs 8–9 are documented below. Lab 10, a combined investigation, remains planned and has no completed results.
+
+## Lab 8 — Validate vulnerability findings before escalation
+
+Performed: October 2, 2026.
+
+I reviewed two QEMU findings in Wazuh instead of treating the scanner labels as proof of exposure. The Windows inventory showed QEMU guest-agent package version 110.0.2 as reported. On the Proxmox host, a package query confirmed pve-qemu-kvm version 11.0.0-3. These are distinct inventory entries; the guest-agent version alone does not establish the host emulator's vulnerability status.
+
+| Finding | Reported issue | Configuration evidence | Disposition |
+| --- | --- | --- | --- |
+| CVE-2023-1386 — High | QEMU 9pfs SUID/SGID handling with potential privilege escalation | Inspected Windows lab VM configuration had no 9p shared filesystem and no custom args entry | Relevant device not configured in the inspected VM; applicability remains unconfirmed |
+| CVE-2021-20255 — Medium | eepro100 i8255x device emulator recursion/DMA reentry with denial-of-service impact | Inspected Windows lab VM used a virtio network adapter | Named emulator not configured in the inspected VM; applicability remains unconfirmed |
+
+I did not validate an exploit, map the installed Proxmox build to vendor fixes or backports, or apply a patch during this lab. A newer version number alone does not prove a fix, and these results do not establish that every VM or the entire host is unaffected. I did not label either finding a confirmed false positive.
+
+My next checks would be the affected package/component, vendor advisory and fixed build, enabled devices across other VMs, and any required attack conditions. I would record the evidence, actual exposure, and remediation decision before escalating a scanner finding as a confirmed vulnerability.
+
+## Lab 9 — Domain account creation and deletion
+
+Performed: October 3, 2026.
+
+I enrolled the Windows Server domain controller into Wazuh and generated a benign domain-account lifecycle. The test account was created disabled, without a password, and was not enabled or added to privileged groups. No login was attempted with it.
+
+Connectivity troubleshooting included a temporary route, host-specific pfSense rules for dashboard TCP 443 and agent TCP 1514–1515, and correcting a malformed manager address in the agent configuration. Connectivity succeeded after saving and applying the firewall rule, but the exact initial rule mismatch was not established. The temporary route was not made persistent. After the address correction and agent restart, Wazuh showed the domain-controller agent active, and the agent log showed connection to the manager and analysis of the Security channel. The service's Running state alone was not considered proof of event delivery.
+
+I checked User Account Management auditing, then created the account:
+
+```powershell
+auditpol /get /subcategory:"User Account Management"
+New-ADUser -Name WazuhLab9
+```
+
+Initial narrow time-range searches returned no results. A local Security query confirmed Event 4720. Wazuh subsequently returned the creation event with a 24-hour search using data.win.system.eventID:4720. The captured dashboard showed alert level 8. The creation rule ID and event record ID were not captured.
+
+The expanded event identified the acting domain administrator account, the target WazuhLab9, its domain, and target SID. The account-control fields supported the disabled account state. The Subject identifies the account used to perform the action, not independently the human operating it.
+
+I deleted the test account:
+
+```powershell
+Remove-ADUser WazuhLab9
+```
+
+Wazuh captured Security Event 4726, record 175276, identifying the same acting account and target account. Its target SID matched the creation event, and the event reported AUDIT_SUCCESS. This confirmed deletion; no separate post-deletion directory lookup was captured.
+
+| Evidence | Original Windows systemTime recorded in Wazuh | Verification |
+| --- | --- | --- |
+| Account creation — 4720 | 2026-10-03T18:58:27.1798922Z | Target WazuhLab9; acting domain administrator; alert level 8 |
+| Account deletion — 4726 | 2026-10-03T19:15:27.4877259Z | Same target SID and actor; event record 175276; audit success |
+
+These are the original recorded values, not validated real-world UTC times. During follow-up, the DC was configured for Pacific time, and its actual clock was confirmed approximately three hours ahead. The timezone explains the seven-hour local-display/UTC difference at that date; it does not explain away the separate clock error. This discrepancy could affect time-range searches, although it was not isolated as the sole cause of the initial missing results. Original evidence timestamps are preserved rather than silently rewritten.
+
+### Time configuration follow-up
+
+I changed the timezone to Eastern and corrected the current clock. Automatic resynchronization initially failed because no time data was available. The active source was Local CMOS Clock, and the peer query showed a blank pending peer. An FSMO query confirmed this DC held the PDC emulator role.
+
+```powershell
+Set-TimeZone -Id "Eastern Standard Time"
+w32tm /query /source
+w32tm /query /peers
+netdom query fsmo
+w32tm /config /manualpeerlist:"time.windows.com,0x8" /syncfromflags:manual /reliable:yes /update
+Restart-Service w32time
+w32tm /resync
+w32tm /query /source
+```
+
+Configuration and resynchronization returned success. The final source query was confirmed as time.windows.com. This verifies the immediate correction and successful synchronization; long-term drift and behavior after reboot were not tested. The correction does not retroactively repair earlier event timestamps.
+
+### Investigation approach and outcome
+
+For an unexpected account creation, I would verify the approved change/CAB request, requested purpose and owner, acting account and session, creation time, group memberships and privileges, and subsequent logins or activity. Administrative credentials do not by themselves prove approval. In this controlled lab, creation and deletion were intentional test actions; no external CAB record was supplied or verified.
+
+The domain-controller agent delivered both creation and deletion events to Wazuh, and the temporary account was removed. The lab also demonstrated why accurate clocks, audit policy, working connectivity, and matching target identifiers matter when reconstructing an account lifecycle.
