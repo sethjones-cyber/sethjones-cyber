@@ -1,4 +1,4 @@
-# Wazuh 4.14 Detection and Investigation — Labs 5–9
+# Wazuh 4.14 Detection and Investigation — Labs 5–10
 
 Author: Seth Jones | Performed: October 1–3, 2026 | Controlled home lab
 
@@ -13,6 +13,7 @@ I tested privileged group membership changes, scheduled task auditing, and Power
 | 7 — PowerShell | Plain marker captured locally; revised marker with environment query captured in Wazuh | Initial marker absent from Wazuh searches; cause not established |
 | 8 — Vulnerability triage | Package and VM device configuration checked | Applicability and vendor patch status not confirmed; no exploit or patch performed |
 | 9 — Domain account monitoring | Wazuh events 4720 and 4726 for the same test account; cleanup detected | Original DC timestamps affected by a three-hour clock error, corrected afterward |
+| 10 — Account lifecycle correlation | Creation, administrator addition, removal, and deletion correlated through matching SIDs | No login or resource-access investigation; timestamps retained as dashboard display values |
 
 Public documentation omits private network addresses, workstation names, administrator usernames, and full SIDs. Screenshot identifiers are described in text rather than publishing original identifying screenshots.
 
@@ -106,7 +107,7 @@ Follow-up: verify retention was saved, review actual available storage and pruni
 
 These labs demonstrated membership-change triage, the effect of audit policy on task visibility, and the distinction between local PowerShell logging and SIEM alert visibility. Test accounts and tasks were removed. Two visibility gaps remain documented rather than reported as resolved: task deletion in Wazuh and the initial plain PowerShell marker.
 
-Labs 8–9 are documented below. Lab 10, a combined investigation, remains planned and has no completed results.
+Labs 8–10 are documented below. Lab 10 completes the controlled account-lifecycle correlation exercise.
 
 ## Lab 8 — Validate vulnerability findings before escalation
 
@@ -179,3 +180,60 @@ Configuration and resynchronization returned success. The final source query was
 For an unexpected account creation, I would verify the approved change/CAB request, requested purpose and owner, acting account and session, creation time, group memberships and privileges, and subsequent logins or activity. Administrative credentials do not by themselves prove approval. In this controlled lab, creation and deletion were intentional test actions; no external CAB record was supplied or verified.
 
 The domain-controller agent delivered both creation and deletion events to Wazuh, and the temporary account was removed. The lab also demonstrated why accurate clocks, audit policy, working connectivity, and matching target identifiers matter when reconstructing an account lifecycle.
+
+## Lab 10 — Correlate a temporary administrator account lifecycle
+
+Author: Seth Jones | Performed: October 3, 2026 | Controlled Windows 11 home lab
+
+### Objective and method
+
+I created a disabled local test account, added it to Administrators, removed the membership, and deleted the account. I used Wazuh Threat hunting to connect the account and group-change evidence through matching SIDs, acting account, host, and event order. No login or resource access was attempted using the test account.
+
+```powershell
+New-LocalUser -Name WazuhLab10 -NoPassword -Disabled
+Add-LocalGroupMember -Group Administrators -Member WazuhLab10
+(Get-LocalUser WazuhLab10).SID.Value
+Remove-LocalGroupMember -Group Administrators -Member WazuhLab10
+Remove-LocalUser -Name WazuhLab10
+```
+
+The first removal command contained a misspelled group name and returned GroupNotFound. Correcting the spelling returned to the prompt without an error. I then verified membership removal and account deletion in Wazuh rather than relying only on command output.
+
+### Search and evidence
+
+I selected the Windows 11 agent and used a 15-minute time range. The creation and addition search was:
+
+```text
+data.win.system.eventID:(4720 OR 4732)
+```
+
+The cleanup search was:
+
+```text
+data.win.system.eventID:(4733 OR 4726)
+```
+
+| Action | Dashboard timestamp, October 3 | Wazuh rule / level | Evidence and limits |
+| --- | --- | --- | --- |
+| Account created | 17:52:13.970 | 60109 / 8 | Expanded Event 4720, record 92066, named WazuhLab10 and the acting local administrator |
+| Added to Administrators | 17:53:14.184 | 60154 / 12 | Member SID matched the local WazuhLab10 SID; target group SID was S-1-5-32-544; acting local administrator confirmed by field review |
+| Removed from Administrators | 18:01:17.442 | 60154 / 12 | Expanded Event 4733, record 92121; same full member SID and Administrators group SID |
+| Account deleted | 18:01:57.563 | 60111 / 8 | Expanded Event 4726, record 92125, named WazuhLab10 and the same acting account |
+
+The table preserves dashboard display values; the screenshots did not show a timezone offset or the original Windows systemTime fields. These values are not relabeled as verified UTC. The dashboard sequence spans approximately 9 minutes 44 seconds from creation alert to deletion alert and 8 minutes 3 seconds between membership-change alerts. These are differences between displayed alert timestamps, not independently measured Windows operation durations.
+
+The creation and deletion target SIDs matched. The membership event used memberSid to identify the added or removed account, while targetSid identified the group. This matters because the group-change view did not provide an immediately readable member name. Matching the full SID connected the membership changes to the named test account. The Subject fields identified the acting local administrator account; they do not independently identify the human controlling that account.
+
+The addition alert appeared in the Event 4720/4732 search and was corroborated through member and group SID review. Its event ID and record ID were not independently captured in the supplied expanded screenshot, so the evidence table preserves that limitation. The creation, removal, and deletion event IDs were captured directly.
+
+### Triage exercise
+
+For an unexpected account that is created, receives administrator membership, and is deleted shortly afterward, I would check the CAB/change request and the who, what, when, where, why, and how. I would verify whether the requested access, affected host, acting account, and time window matched the approval. I would also review logins and related activity during the account's lifetime to determine whether resources were accessed and what was accessed.
+
+A short account lifetime and later deletion do not establish harmless activity. An administrator performing the action does not prove authorization. Missing access logs alone do not prove that nothing was accessed. In this exercise, CAB and access review were discussed as investigation steps; no external CAB ticket or complete resource-access investigation was performed.
+
+### Outcome and cleanup
+
+Wazuh captured the account lifecycle and both Administrators membership changes. Matching SIDs linked the evidence to the same temporary account. Event 4733 confirmed removal from Administrators, and Event 4726 confirmed deletion. The account was created disabled and was not enabled during the lab. No separate post-deletion local-user lookup or login test was captured.
+
+This completes Lab 10's controlled correlation exercise. Public documentation omits the actual host and administrator names, private addresses, and full account SIDs; identifying screenshots are not published.
