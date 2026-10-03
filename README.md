@@ -30,7 +30,7 @@ Cybersecurity graduate and IT support professional focused on security operation
 | [Wazuh Authentication Detection](projects/wazuh-authentication/) | SIEM monitoring, alert triage, Windows Events 4625 and 4624, service recovery | Two verified labs |
 | [Wazuh File Integrity Monitoring](projects/wazuh-fim/) | Realtime file monitoring, change triage, agent configuration recovery | Creation, modification, deletion verified |
 | [Wazuh Account Creation and Deletion](projects/wazuh-accounts/) | Windows Events 4720 and 4726, account review, change authorization | Creation and deletion verified |
-| [Wazuh 4.14 Detection and Investigation — Labs 5–9](projects/wazuh-detection/) | Windows detections, QEMU vulnerability triage, domain accounts, time synchronization | Controlled tests completed; gaps documented |
+| [Wazuh 4.14 Detection and Investigation — Labs 5–10](projects/wazuh-detection/) | Windows detections, vulnerability triage, domain accounts, account lifecycle correlation | Controlled tests completed; gaps documented |
 | Network Segmentation and Zero Trust     | pfSense, VLANs, firewall rules, least privilege                | Planned                   |
 | Home-Lab Security Risk Assessment       | Asset inventory, risk analysis, NIST CSF 2.0                   | Planned                   |
 
